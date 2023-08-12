@@ -36,7 +36,7 @@ const c = new Container();
 c.bind(PetOwner).with(IAnimal).toFactory((a: IAnimal) => ({ pet: a }));
 c.bind(IAnimal).toFactory(() => new Dog());
 
-console.log(c.resolve(PetGroomer).customer.pet.getNoise()); // prints "woof"
+console.log(c.resolve(PetOwner).pet.getNoise()); // prints "woof"
 ```
 
 ## The Theory Behind Zoddi
