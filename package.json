@@ -5,6 +5,10 @@
 	"main": "./dist/zoddi.js",
 	"module": "/dist/zoddi.js",
 	"exports": "./dist/zoddi.js",
+	"repository": {
+		"type": "git",
+		"url": "https://github.com/ddurschlag/zoddi"
+	},
 	"scripts": {
 		"build": "tsc",
 		"test": "jest"

@@ -1,7 +1,7 @@
 import z from 'zod';
 import { Container, DependencyResolutionError } from '../';
 
-const IAnimal = z.strictObject({
+const IAnimal = z.object({
 	legCount: z.number(),
 	getNoise: z.function().args().returns(z.string())
 });
@@ -22,6 +22,13 @@ class Dog implements IAnimal {
 	get legCount() { return 4; }
 	getNoise() { return "woof"; }
 };
+
+class Human implements IAnimal {
+	constructor(name: string) {this._name = name;}
+	get legCount() { return 2; }
+	getNoise() { return `My name is ${this._name}`; }
+	private _name: string;
+}
 
 class LocalGroomer implements PetGroomer {
 	constructor(public customer: PetOwner) {}
@@ -46,7 +53,7 @@ describe('zoddi', () => {
 	test('Keyed resolutions and singletons', () => {
 		const c = new Container();
 		c.bind(IAnimal).toFactory(() => new Dog());
-		c.bind(IAnimal, sneakyCatKey).toFactory(() => sneakyCat);
+		c.bind(IAnimal, sneakyCatKey).toInstance(sneakyCat);
 		expect(c.resolve(IAnimal, sneakyCatKey).getNoise()).toBe('meow');
 	});
 	test('Resolution failure', () => {
@@ -62,5 +69,23 @@ describe('zoddi', () => {
 		const c = new Container();
 		c.bind(IAnimal).toFactory(() => sneakyCat);
 		expect(() => c.resolve(IAnimal, sneakyCatKey)).toThrowError(DependencyResolutionError);
+	});
+	test('Object methods', () => {
+		const c = new Container();
+		const steve = new Human("steve");
+		c.bind(IAnimal).toFactory(() => steve);
+		expect(c.resolve(IAnimal).getNoise()).toBe('My name is steve');
+	});
+	test('Non-object deps', () => {
+		// Note that we create a variable here. Two different calls to
+		// z.string() return different objects and are thus not the same.
+		// Functionally, this means zoddi uses identity equality for types,
+		// not structural equality. A structural comparer is plausible,
+		// but would be complex and potentially slow.
+		const personName = z.string();
+		const c = new Container();
+		c.bind(personName).toFactory(() => "steve");
+		c.bind(IAnimal).with(personName).toType(Human);
+		expect(c.resolve(IAnimal).getNoise()).toBe('My name is steve');
 	});
 });
