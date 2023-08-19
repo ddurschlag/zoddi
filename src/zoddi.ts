@@ -3,13 +3,14 @@ import z from 'zod';
 // What can be injected/resoslved
 type Injectable = z.ZodTypeAny;
 
+// Variations on multiplicity for dependency types
+// These include only the types, not key/strictness
 type EmptyZodDependencies = [];
 type AnyZodDependencies = Injectable[];
 type PresentZodDependencies = [Injectable, ...AnyZodDependencies];
-
-// Tuple of the dependencies needed to resolve something
 type ZodDependencies = EmptyZodDependencies | PresentZodDependencies;
 
+// Functions for concetenating dependency tuples
 type AssertZodDependencies<T extends ZodDependencies> = T extends EmptyZodDependencies ? EmptyZodDependencies : T extends [infer H, ...infer R] ? [H, ...AssertAnyZodDependencies<R>] : never;
 type AssertAnyZodDependencies<T extends unknown[]> = T extends EmptyZodDependencies ? AssertZodDependencies<EmptyZodDependencies> : T extends PresentZodDependencies ? AssertZodDependencies<T> : never;
 type ConcatZodDependencies<T extends ZodDependencies, U extends ZodDependencies> =
@@ -31,15 +32,18 @@ type ConcatZodDependencies<T extends ZodDependencies, U extends ZodDependencies>
 // Default is null
 type KeyType = symbol | null;
 
+// Full dependencies, including keys and strictness
 type Dependency<T extends Injectable> = { type: T, strict: boolean, key: KeyType }
 type RawDependency<T extends Injectable> = Dependency<T>|T;
 type RawDependencies<T extends ZodDependencies> = {[K in keyof T]: RawDependency<T[K]>}
 type Dependencies<T extends ZodDependencies> = {[K in keyof T]: Dependency<T[K]>}
 
+// Build up a list of dependencies (allows repeated with() calls)
 function concatDependencies<T extends ZodDependencies, U extends ZodDependencies>(t: Dependencies<T>, u: Dependencies<U>): Dependencies<ConcatZodDependencies<T, U>> {
 	return [...t, ...u] as any;
 }
 
+// Functions for ensuring raw dependencies become full dependencies
 function buildDependency<T extends Injectable>(dep: Dependency<T>): Dependency<T>;
 function buildDependency<T extends Injectable>(dep: T): Dependency<T>;
 function buildDependency<T extends Injectable>(dep: Dependency<T>|T): Dependency<T> {
@@ -51,11 +55,9 @@ function buildDependency<T extends Injectable>(dep: Dependency<T>|T): Dependency
 	}
 	return dep;
 }
-
 function buildDependencies<T extends ZodDependencies>(deps: RawDependencies<T>): Dependencies<T> {
 	return deps.map(buildDependency) as any; // todo: wish this could be a less aggresssive cast, or none at all somehow
 }
-
 
 // The type of the factory function needed to register a provider
 type Factory<TDeps extends ZodDependencies, TInterface extends Injectable> = z.InnerTypeOfFunction<z.ZodTuple<[...TDeps], z.ZodUnknown>, TInterface>;
@@ -83,18 +85,20 @@ export class DependencyResolutionError extends Error {
 	}
 }
 
+// Get a passthrough version of a type, but have it masquerade
+// as its inner type. Useful for type-checking arguments
 function passthrough<T extends Injectable>(input: T) {
 	if (input instanceof z.ZodObject) {
 		return input.passthrough() as unknown as T;
 	}
 	return input;
 }
-
+// Passthrough types for a set of full dependencies
 function passthroughDependencyTypes<T extends ZodDependencies>(t: Dependencies<T>): T {
 	return t.map(({type}) => passthrough(type)) as any;
 }
 
-
+// Storage for providers
 class ProviderStorage {
 	constructor() {
 		this._map = new Map();
@@ -125,6 +129,7 @@ class ProviderStorage {
 	>;	
 }
 
+// Fluent builder for implementation provision
 class Binder<TInterface extends Injectable, TDepTypes extends ZodDependencies> {
 	constructor(
 		storage: ProviderStorage,
@@ -166,15 +171,21 @@ class Binder<TInterface extends Injectable, TDepTypes extends ZodDependencies> {
 	private _depCheckType: TDepTypes;
 };
 
+// IoC container. Bind stuff in, resolve stuff out.
 export class Container {
 	constructor() {
 		this._storage = new ProviderStorage();
 	}
 
+	// Bind to a type, with optional key. Use keys
+	// if you have multiple implementations of a type
 	public bind<TInterface extends Injectable>(bound: TInterface, key: KeyType = null) {
 		return new Binder(this._storage, bound, [], key);
 	}
 
+	// Resolve a type with optional key. Will resolve
+	// any dependencies of the implementation as well.
+	// Use keys if you have multiple implementatiosn of a type
 	public resolve<TInterface extends Injectable>(boundInterface: TInterface, key: KeyType = null) {
 		const { dependencies, impl } = this._storage.retrieve(boundInterface, key);
 		const result: z.infer<TInterface> = Reflect.apply<null, Injectable[], z.infer<TInterface>>(impl, null, dependencies.map((d) => this.resolveDependency(d)));
@@ -197,4 +208,14 @@ export class Container {
 	}
 
 	private _storage: ProviderStorage;
+}
+
+// Function to get a full dependency instead
+// of just a type.
+export function dep<T extends Injectable>(
+	type: T,
+	key: KeyType = null,
+	strict: boolean = true
+): Dependency<T> {
+	return {type, key, strict};
 }

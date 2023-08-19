@@ -1,5 +1,5 @@
 import z from 'zod';
-import { Container, DependencyResolutionError } from '../';
+import { Container, DependencyResolutionError, dep } from '../';
 
 const IAnimal = z.object({
 	legCount: z.number(),
@@ -14,9 +14,15 @@ const PetGroomer = z.strictObject({
 	customer: PetOwner
 });
 
+const DomesticPair = z.strictObject({
+	cat: IAnimal,
+	dog: IAnimal
+});
+
 type IAnimal = z.infer<typeof IAnimal>;
 type PetOwner = z.infer<typeof PetOwner>;
 type PetGroomer = z.infer<typeof PetGroomer>;
+type DomesticPair = z.infer<typeof DomesticPair>;
 
 class Dog implements IAnimal {
 	get legCount() { return 4; }
@@ -85,12 +91,12 @@ describe('zoddi', () => {
 		const personName = z.string();
 		const c = new Container();
 		c.bind(personName).toFactory(() => "steve");
-		c.bind(IAnimal).with(personName).toType(Human);
+		c.bind(IAnimal).with(dep(personName)).toType(Human);
 		expect(c.resolve(IAnimal).getNoise()).toBe('My name is steve');
 	});
 	test('Keyed deps', () => {
 		const c = new Container();
-		c.bind(PetOwner).with<[typeof IAnimal]>({type: IAnimal, strict: true, key: sneakyCatKey}).toFactory((a: IAnimal) => ({ pet: a }));
+		c.bind(PetOwner).with(dep(IAnimal, sneakyCatKey)).toFactory((a: IAnimal) => ({ pet: a }));
 		c.bind(IAnimal).toFactory(() => new Dog());
 		c.bind(IAnimal, sneakyCatKey).toInstance(sneakyCat);
 		c.bind(PetGroomer).with(PetOwner).toType(LocalGroomer);
@@ -98,16 +104,34 @@ describe('zoddi', () => {
 	});
 	test('Non-strict dep', () => {
 		const c = new Container();
-		c.bind(PetOwner).with<[typeof IAnimal]>({type: IAnimal, strict: false, key: sneakyCatKey}).toFactory((a: IAnimal) => ({ pet: a }));
+		c.bind(PetOwner).with(dep(IAnimal, sneakyCatKey, false)).toFactory((a: IAnimal) => ({ pet: a }));
 		c.bind(IAnimal).toFactory(() => new Dog());
 		c.bind(PetGroomer).with(PetOwner).toType(LocalGroomer);
 		expect(c.resolve(PetGroomer).customer.pet.getNoise()).toBe('woof');
 	});
 	test('Failed strict dep', () => {
 		const c = new Container();
-		c.bind(PetOwner).with<[typeof IAnimal]>({type: IAnimal, strict: true, key: sneakyCatKey}).toFactory((a: IAnimal) => ({ pet: a }));
+		c.bind(PetOwner).with(dep(IAnimal, sneakyCatKey)).toFactory((a: IAnimal) => ({ pet: a }));
 		c.bind(IAnimal).toFactory(() => new Dog());
 		c.bind(PetGroomer).with(PetOwner).toType(LocalGroomer);
 		expect(() => c.resolve(PetGroomer)).toThrowError(DependencyResolutionError);
+	});
+	test('Full dep before type', () => {
+		const c = new Container();
+		c.bind(IAnimal).toFactory(() => new Dog());
+		c.bind(IAnimal, sneakyCatKey).toInstance(sneakyCat);
+		c.bind(DomesticPair).with(dep(IAnimal, sneakyCatKey), IAnimal).toFactory((cat, dog) => ({cat, dog}));
+	});
+	test('Full dep after type', () => {
+		const c = new Container();
+		c.bind(IAnimal).toFactory(() => new Dog());
+		c.bind(IAnimal, sneakyCatKey).toInstance(sneakyCat);
+		c.bind(DomesticPair).with(IAnimal, dep(IAnimal, sneakyCatKey)).toFactory((dog, cat) => ({cat, dog}));
+	});
+	test('Split deps', () => {
+		const c = new Container();
+		c.bind(IAnimal).toFactory(() => new Dog());
+		c.bind(IAnimal, sneakyCatKey).toInstance(sneakyCat);
+		c.bind(DomesticPair).with(IAnimal).with(dep(IAnimal, sneakyCatKey)).toFactory((dog, cat) => ({cat, dog}));
 	});
 });
