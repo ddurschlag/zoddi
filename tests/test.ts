@@ -88,4 +88,26 @@ describe('zoddi', () => {
 		c.bind(IAnimal).with(personName).toType(Human);
 		expect(c.resolve(IAnimal).getNoise()).toBe('My name is steve');
 	});
+	test('Keyed deps', () => {
+		const c = new Container();
+		c.bind(PetOwner).with<[typeof IAnimal]>({type: IAnimal, strict: true, key: sneakyCatKey}).toFactory((a: IAnimal) => ({ pet: a }));
+		c.bind(IAnimal).toFactory(() => new Dog());
+		c.bind(IAnimal, sneakyCatKey).toInstance(sneakyCat);
+		c.bind(PetGroomer).with(PetOwner).toType(LocalGroomer);
+		expect(c.resolve(PetGroomer).customer.pet.getNoise()).toBe('meow');
+	});
+	test('Non-strict dep', () => {
+		const c = new Container();
+		c.bind(PetOwner).with<[typeof IAnimal]>({type: IAnimal, strict: false, key: sneakyCatKey}).toFactory((a: IAnimal) => ({ pet: a }));
+		c.bind(IAnimal).toFactory(() => new Dog());
+		c.bind(PetGroomer).with(PetOwner).toType(LocalGroomer);
+		expect(c.resolve(PetGroomer).customer.pet.getNoise()).toBe('woof');
+	});
+	test('Failed strict dep', () => {
+		const c = new Container();
+		c.bind(PetOwner).with<[typeof IAnimal]>({type: IAnimal, strict: true, key: sneakyCatKey}).toFactory((a: IAnimal) => ({ pet: a }));
+		c.bind(IAnimal).toFactory(() => new Dog());
+		c.bind(PetGroomer).with(PetOwner).toType(LocalGroomer);
+		expect(() => c.resolve(PetGroomer)).toThrowError(DependencyResolutionError);
+	});
 });
