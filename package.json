@@ -1,6 +1,6 @@
 {
 	"name": "zoddi",
-	"version": "1.1.0",
+	"version": "1.2.0",
 	"description": "DI/IOC container using Zod",
 	"main": "./dist/zoddi.js",
 	"module": "/dist/zoddi.js",
@@ -44,7 +44,7 @@
 		"ioc container"
 	],
 	"dependencies": {
-		"zod": "3.21.4"
+		"zod": "3.22.2"
 	},
 	"files": [
 		"dist/**/*",
