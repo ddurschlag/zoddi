@@ -32,6 +32,9 @@ type ConcatZodDependencies<T extends ZodDependencies, U extends ZodDependencies>
 // Default is null
 type KeyType = symbol | null;
 
+// Function to post-process an instance after zod checking
+type PostProcessor<T extends Injectable> = ((checked: T["_input"]) => T["_input"]);
+
 // Full dependencies, including keys and strictness
 type Dependency<T extends Injectable> = { type: T, strict: boolean, key: KeyType }
 type RawDependency<T extends Injectable> = Dependency<T>|T;
@@ -73,6 +76,8 @@ type Provider = {
 	impl: z.InnerTypeOfFunction<any, any>,
 	// Optional key if multiple implementations are desired
 	key: symbol | null;
+	// Optional post-processing function after zod validation
+	postProcessor: null | PostProcessor<Injectable>;
 };
 
 // A type that implements an interface. Once bound will be wrapped in an appropriate factory
@@ -129,13 +134,45 @@ class ProviderStorage {
 	>;	
 }
 
+class InstanceStorage {
+	constructor() {
+		this._map = new Map();
+	}
+
+	public store(bound: Injectable, key: KeyType, instance: unknown) {
+		let keyMap = this._map.get(bound);
+		if (keyMap === undefined) {
+			keyMap = new Map();
+			this._map.set(bound, keyMap);
+		}
+		keyMap.set(key, instance);
+	}
+	public retrieve<T>(bound: Injectable, key: KeyType) {
+		const keyMap = this._map.get(bound);
+		if (keyMap === undefined) {
+			return null;
+		}
+		const result = keyMap.get(key);
+		console.log({bound, key, result});
+		if (result === undefined) {
+			return null;
+		}
+		return result as T;
+	}
+	private _map: Map<
+		Injectable, // What we're going to get
+		Map<KeyType, unknown>
+	>;
+}
+
 // Fluent builder for implementation provision
 class Binder<TInterface extends Injectable, TDepTypes extends ZodDependencies> {
 	constructor(
 		storage: ProviderStorage,
 		bound: TInterface,
 		dependencies: Dependencies<TDepTypes>,
-		key: KeyType
+		key: KeyType,
+		postProcessor: null | PostProcessor<TInterface> = null
 	) {
 		this._storage = storage;
 		this._bound = bound;
@@ -143,20 +180,36 @@ class Binder<TInterface extends Injectable, TDepTypes extends ZodDependencies> {
 		this._key = key;
 		this._retCheckType = passthrough(bound);
 		this._depCheckType = passthroughDependencyTypes(dependencies);
+		this._postProcessor = postProcessor;
+	}
+
+	public postProcess(processor: PostProcessor<TInterface>) {
+		return new Binder(
+			this._storage,
+			this._bound,
+			this._dependencies,
+			this._key,
+			processor
+		);
 	}
 
 	public with<TMoreDeps extends ZodDependencies>(...moreDeps: RawDependencies<TMoreDeps>) {
-		return new Binder<TInterface, ConcatZodDependencies<TDepTypes, TMoreDeps>>(this._storage, this._bound, concatDependencies(this._dependencies, buildDependencies(moreDeps)), this._key); // Another hateful typing issue
+		return new Binder(
+			this._storage,
+			this._bound,
+			concatDependencies(this._dependencies, buildDependencies(moreDeps)),
+			this._key
+		); 
 	}
 
 	public toFactory(factory: Factory<TDepTypes, TInterface>) {
 		const impl = z.function().args(...this._depCheckType).returns(this._retCheckType).strictImplement(factory);
-		this._storage.store(this._bound, { dependencies: this._dependencies, impl, key: this._key });
+		this._storage.store(this._bound, { dependencies: this._dependencies, impl, key: this._key, postProcessor: this._postProcessor as any });
 	}
 
 	public toType(implementor: Implementor<TInterface, TDepTypes>) {
 		const impl = z.function().args(...this._depCheckType).returns(this._retCheckType).strictImplement((...args) => new implementor(...args));
-		this._storage.store(this._bound, { dependencies: this._dependencies, impl, key: this._key });
+		this._storage.store(this._bound, { dependencies: this._dependencies, impl, key: this._key, postProcessor: this._postProcessor as any });
 	}
 
 	public toInstance(instance: TInterface["_input"]) {
@@ -169,12 +222,14 @@ class Binder<TInterface extends Injectable, TDepTypes extends ZodDependencies> {
 	private _key: KeyType;
 	private _retCheckType: TInterface;
 	private _depCheckType: TDepTypes;
+	private _postProcessor: null | PostProcessor<TInterface>;
 };
 
 // IoC container. Bind stuff in, resolve stuff out.
 export class Container {
 	constructor() {
 		this._storage = new ProviderStorage();
+		this._instanceStorage = new InstanceStorage();
 	}
 
 	// Bind to a type, with optional key. Use keys
@@ -186,9 +241,17 @@ export class Container {
 	// Resolve a type with optional key. Will resolve
 	// any dependencies of the implementation as well.
 	// Use keys if you have multiple implementatiosn of a type
-	public resolve<TInterface extends Injectable>(boundInterface: TInterface, key: KeyType = null) {
-		const { dependencies, impl } = this._storage.retrieve(boundInterface, key);
-		const result: z.infer<TInterface> = Reflect.apply<null, Injectable[], z.infer<TInterface>>(impl, null, dependencies.map((d) => this.resolveDependency(d)));
+	public resolve<TInterface extends Injectable>(boundInterface: TInterface, key: KeyType = null): z.infer<TInterface> {
+		let result = this._instanceStorage.retrieve<z.infer<TInterface>>(boundInterface, key);
+		if (result === null) {
+			const { dependencies, impl, postProcessor } = this._storage.retrieve(boundInterface, key);
+			let newResult = Reflect.apply<null, Injectable[], z.infer<TInterface>>(impl, null, dependencies.map((d) => this.resolveDependency(d)));
+			if (postProcessor !== null) {
+				newResult = postProcessor(newResult);
+			}
+			this._instanceStorage.store(boundInterface, key, newResult);
+			return newResult;
+		}
 		return result;
 	}
 
@@ -208,6 +271,7 @@ export class Container {
 	}
 
 	private _storage: ProviderStorage;
+	private _instanceStorage: InstanceStorage;
 }
 
 // Function to get a full dependency instead

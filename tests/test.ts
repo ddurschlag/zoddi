@@ -114,6 +114,7 @@ describe('zoddi', () => {
 		c.bind(PetOwner).with(dep(IAnimal, sneakyCatKey)).toFactory((a: IAnimal) => ({ pet: a }));
 		c.bind(IAnimal).toFactory(() => new Dog());
 		c.bind(PetGroomer).with(PetOwner).toType(LocalGroomer);
+		expect(c.resolve(IAnimal).getNoise()).toBe('woof');
 		expect(() => c.resolve(PetGroomer)).toThrowError(DependencyResolutionError);
 	});
 	test('Full dep before type', () => {
@@ -133,5 +134,17 @@ describe('zoddi', () => {
 		c.bind(IAnimal).toFactory(() => new Dog());
 		c.bind(IAnimal, sneakyCatKey).toInstance(sneakyCat);
 		c.bind(DomesticPair).with(IAnimal).with(dep(IAnimal, sneakyCatKey)).toFactory((dog, cat) => ({cat, dog}));
+	});
+	test('Same instance', () => {
+		const c = new Container();
+		const steve = new Human("steve");
+		c.bind(IAnimal).toFactory(() => steve);
+		expect(c.resolve(IAnimal)).toBe(c.resolve(IAnimal));
+	});
+	test('Post-processing', () => {
+		const c = new Container();
+		const steve = new Human("steve");
+		c.bind(IAnimal).postProcess((steve) => new Human("paul")).toInstance(steve);
+		expect(c.resolve(IAnimal).getNoise()).toBe('My name is paul');
 	});
 });
